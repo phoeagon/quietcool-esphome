@@ -16,11 +16,18 @@ esphome:
   friendly_name: QuietCool Fan
   name_add_mac_suffix: true
 
-# Hardware configuration for ESP32 development board
+# ESP32-C3
 esp32:
-  board: esp32dev
+  board: esp32-c3-devkitm-1  # Most common generic C3 ID
+  variant: esp32c3
   framework:
-    type: arduino
+    type: esp-idf            # Better for C3 than 'arduino'
+    version: recommended     # Uses the most stable IDF version
+    sdkconfig_options:
+      # Enables the coexistence algorithm to manage the shared antenna
+      CONFIG_ESP32_WIFI_SW_COEXIST_ENABLE: "y"
+      # Tells the chip to prefer WiFi stability during scans
+      CONFIG_BT_CTRL_BLE_MAX_ACT: "10"
 
 # Enable Home Assistant API integration
 api:
@@ -96,6 +103,42 @@ script:
           id: send_ble_msg
           msg: !lambda return "{\"Api\":\"SetTime\",\"SetHour\":" + std::to_string(hours) + ",\"SetMinute\":" + std::to_string(minutes) + ",\"SetTime_Range\":\"" + speed + "\"}";
       - script.wait: send_ble_msg
+  - id: set_temp_humidity
+    parameters:
+      temp_h: int
+      temp_m: int
+      temp_l: int
+      hum_h: int
+      hum_l: int
+      hum_range: string
+    then:
+      - script.execute:
+          id: send_ble_msg
+          msg: !lambda |-
+            char buf[256];
+            sprintf(buf, "{\"Api\":\"SetTempHumidity\",\"SetTemp_H\":%d,\"SetTemp_M\":%d,\"SetTemp_L\":%d,\"SetHum_H\":%d,\"SetHum_L\":%d,\"SetHum_Range\":\"%s\"}", 
+                    temp_h, temp_m, temp_l, hum_h, hum_l, hum_range.c_str());
+            return std::string(buf);
+      - script.wait: send_ble_msg
+  - id: apply_temp_hum_settings
+    then:
+      - script.execute:
+          id: set_temp_humidity
+          temp_h: !lambda return (int)id(temp_h_setting).state;
+          temp_m: !lambda return (int)id(temp_m_setting).state;
+          temp_l: !lambda return (int)id(temp_l_setting).state;
+          hum_h: !lambda return (int)id(hum_h_setting).state;
+          hum_l: !lambda return (int)id(hum_l_setting).state;
+          hum_range: !lambda return id(hum_range_setting).state;
+  - id: update_remain_time
+    then:
+      - lambda: |-
+          float h = id(remain_hour).state;
+          float m = id(remain_minute).state;
+          float s = id(remain_second).state;
+          if (!std::isnan(h) && !std::isnan(m) && !std::isnan(s)) {
+            id(remain_time).publish_state(h * 3600 + m * 60 + s);
+          }
   - id: send_ble_msg
     parameters:
       msg: string
@@ -129,8 +172,8 @@ fan:
       - script.execute:
           id: set_timer
           speed: !lambda 'return x == 2 ? "HIGH" : "LOW";'
-          hours: 3
-          minutes: 0
+          hours: !lambda return (int)id(timer_hours).state;
+          minutes: !lambda return (int)id(timer_minutes).state;
       - script.wait: set_timer
       - script.execute:
           id: set_mode
@@ -138,19 +181,33 @@ fan:
       - script.wait: set_mode
     on_turn_on:
       - logger.log: "Turning on timer"
-      - script.execute:
-          id: set_mode
-          mode: "Timer"
-      - script.wait: set_mode
+      - if:
+          condition:
+            lambda: 'return id(mode).state != "Timer";'
+          then:
+            - script.execute:
+                id: set_timer
+                speed: !lambda 'return id(quietcool_fan).speed == 2 ? "HIGH" : "LOW";'
+                hours: !lambda return (int)id(timer_hours).state;
+                minutes: !lambda return (int)id(timer_minutes).state;
+            - script.wait: set_timer
+            - script.execute:
+                id: set_mode
+                mode: "Timer"
+            - script.wait: set_mode
       - event.trigger:
           id: fan_on_event
           event_type: fan_on
     on_turn_off:
       - logger.log: "Turning off"
-      - script.execute:
-          id: set_mode
-          mode: "Idle"
-      - script.wait: set_mode
+      - if:
+          condition:
+            lambda: 'return id(mode).state != "Idle";'
+          then:
+            - script.execute:
+                id: set_mode
+                mode: "Idle"
+            - script.wait: set_mode
       - event.trigger:
           id: fan_off_event
           event_type: fan_off
@@ -195,6 +252,83 @@ number:
           hours: !lambda return id(timer_hours).state;
           minutes: !lambda return x;
           speed: *set_timer_speed
+  - platform: template
+    name: "Temp High"
+    id: temp_h_setting
+    min_value: 60
+    max_value: 120
+    step: 1
+    unit_of_measurement: "°F"
+    optimistic: true
+    on_value:
+      - script.execute: apply_temp_hum_settings
+  - platform: template
+    name: "Temp Medium"
+    id: temp_m_setting
+    min_value: 60
+    max_value: 120
+    step: 1
+    unit_of_measurement: "°F"
+    optimistic: true
+    on_value:
+      - script.execute: apply_temp_hum_settings
+  - platform: template
+    name: "Temp Low"
+    id: temp_l_setting
+    min_value: 60
+    max_value: 120
+    step: 1
+    unit_of_measurement: "°F"
+    optimistic: true
+    on_value:
+      - script.execute: apply_temp_hum_settings
+  - platform: template
+    name: "Humidity High"
+    id: hum_h_setting
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    optimistic: true
+    on_value:
+      - script.execute: apply_temp_hum_settings
+  - platform: template
+    name: "Humidity Low"
+    id: hum_l_setting
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    optimistic: true
+    on_value:
+      - script.execute: apply_temp_hum_settings
+
+select:
+  - platform: template
+    name: "Fan Mode"
+    id: mode_select
+    options:
+      - "Idle"
+      - "Timer"
+      - "TH"
+    optimistic: true
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x != id(mode).state;'
+          then:
+            - script.execute:
+                id: set_mode
+                mode: !lambda return x;
+  - platform: template
+    name: "Humidity Range"
+    id: hum_range_setting
+    options:
+      - "HIGH"
+      - "LOW"
+    optimistic: true
+    on_value:
+      - script.execute: apply_temp_hum_settings
 
 # Device Configuration
 # ----------------------------------------
@@ -221,6 +355,30 @@ button:
             id: send_ble_msg
             msg: !lambda return "{\"Api\":\"Pair\",\"PhoneID\":\"" + id(pair_id).state + "\"}";
         - script.wait: send_ble_msg
+  - platform: template
+    name: "Enter Pair Mode"
+    id: pair_mode_button
+    on_press:
+      then:
+        - script.execute:
+            id: send_ble_msg
+            msg: !lambda return "{\"Api\":\"PairMode\"}";
+        - script.wait: send_ble_msg
+  - platform: template
+    name: "Apply Timer"
+    id: apply_timer_button
+    on_press:
+      then:
+        - script.execute:
+            id: set_timer
+            speed: !lambda 'return id(quietcool_fan).speed == 2 ? "HIGH" : "LOW";'
+            hours: !lambda return (int)id(timer_hours).state;
+            minutes: !lambda return (int)id(timer_minutes).state;
+        - script.wait: set_timer
+        - script.execute:
+            id: set_mode
+            mode: "Timer"
+        - script.wait: set_mode
 
 # Sensor Templates and Configurations
 # ----------------------------------------
@@ -281,6 +439,34 @@ sensor:
     device_class: duration
     accuracy_decimals: 0
     disabled_by_default: true
+  - platform: template
+    name: "Remain Hour"
+    id: remain_hour
+    internal: true
+    on_value:
+      then:
+        - script.execute: update_remain_time
+  - platform: template
+    name: "Remain Minute"
+    id: remain_minute
+    internal: true
+    on_value:
+      then:
+        - script.execute: update_remain_time
+  - platform: template
+    name: "Remain Second"
+    id: remain_second
+    internal: true
+    on_value:
+      then:
+        - script.execute: update_remain_time
+  - platform: template
+    name: "Remaining Time"
+    id: remain_time
+    unit_of_measurement: "s"
+    device_class: duration
+    state_class: measurement
+    accuracy_decimals: 0
 
 # Text Sensors and BLE Data Handling
 # ----------------------------------------
@@ -288,27 +474,28 @@ sensor:
 # The BLE data handler parses incoming JSON messages and updates appropriate sensors
 text_sensor:
   - platform: template
-    name: mode
+    name: "mode"
     id: mode
+    internal: true
+    on_value:
+      - select.set:
+          id: mode_select
+          option: !lambda return x;
   - platform: template
     name: range
     id: range
   - platform: template
     name: fan_type
     id: fan_type
-    disabled_by_default: true
   - platform: template
     name: name
     id: name
-    disabled_by_default: true
   - platform: template
     name: model
     id: model
-    disabled_by_default: true
   - platform: template
     name: serial_num
     id: serial_num
-    disabled_by_default: true
   - platform: template
     name: sensor_state
     id: sensor_state
@@ -337,7 +524,7 @@ text_sensor:
             accumulated += x;
             if (!x.empty() && x.back() == '}') {
               id(quietcool_ble_data).publish_state(accumulated);
-              ESP_LOGD("quietcool", "Received JSON data: %s", accumulated.c_str());
+              ESP_LOGI("quietcool", "Received JSON data: %s", accumulated.c_str());
               bool parsed = false;
               json::parse_json(accumulated, [&parsed](JsonObject root) -> bool {
                 parsed = true;
@@ -363,22 +550,25 @@ text_sensor:
                   }
                   
                   // Try to find a matching sensor
-                  auto *sensor = App.get_sensor_by_key(fnv1_hash(transformed.c_str()));
+                  auto *sensor = App.get_sensor_by_key(fnv1_hash(transformed.c_str()), true);
                   if (sensor != nullptr) {
                     float value = it->value().as<float>();
+                    if (transformed.find("temp_sample") != std::string::npos) {
+                      value = value / 10.0;
+                    }
                     sensor->publish_state(value);
                     continue;
                   }
                   
                   // Try to find a matching text sensor
-                  auto *text_sensor = App.get_text_sensor_by_key(fnv1_hash(transformed.c_str()));
+                  auto *text_sensor = App.get_text_sensor_by_key(fnv1_hash(transformed.c_str()), true);
                   if (text_sensor != nullptr) {
                     std::string value = it->value().as<std::string>();
                     text_sensor->publish_state(value);
                     continue;
                   }
                   
-                  ESP_LOGD("quietcool", "No sensor found for key: %s", transformed.c_str());
+                  ESP_LOGI("quietcool", "No sensor found for key: %s", transformed.c_str());
                 }
                 
                 return true;
@@ -397,7 +587,7 @@ text_sensor:
 # - Fan information
 # This ensures the Home Assistant interface stays in sync with the actual fan state
 interval:
-  - interval: 15s
+  - interval: 60s
     then:
       - script.execute:
           id: send_ble_msg
@@ -413,6 +603,14 @@ interval:
           id: send_ble_msg
           msg: !lambda return "{\"Api\":\"GetFanInfo\"}";
       - script.wait: send_ble_msg
+      - if:
+          condition:
+            lambda: 'return id(mode).state == "Timer";'
+          then:
+            - script.execute:
+                id: send_ble_msg
+                msg: "{\"Api\":\"GetRemainTime\"}"
+            - script.wait: send_ble_msg
 
 time:
   - platform: homeassistant
