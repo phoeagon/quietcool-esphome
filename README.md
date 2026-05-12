@@ -31,8 +31,24 @@ substitutions:
     mac_address: "00:00:00:00:00:00" # Replace with your Smart Attic Fan Control's MAC address
 
 packages:
-  remote_package_shorthand: github://awkaplan/quietcool-esphome/quietcool-smart-attic-fan-control.yaml@main
+  remote_package_shorthand: github://phoeagon/quietcool-esphome/quietcool-smart-attic-fan-control.yaml@main
+
+# This repo is configured for ESP32-C3, unlike awkaplan/quietcool-esphome.
+# For other devices you may need to change the device section.
+# ESP32-C3
+# esp32:
+#   board: esp32-c3-devkitm-1  # Most common generic C3 ID
+#   variant: esp32c3
+#   framework:
+#     type: esp-idf            # Better for C3 than 'arduino'
+#     version: recommended     # Uses the most stable IDF version
+#     sdkconfig_options:
+#       # Enables the coexistence algorithm to manage the shared antenna
+#       CONFIG_ESP32_WIFI_SW_COEXIST_ENABLE: "y"
+#       # Tells the chip to prefer WiFi stability during scans
+#       CONFIG_BT_CTRL_BLE_MAX_ACT: "10"
 ```
+
 
 4.  Add the ESPHome device to Home Assistant and update the pairing ID with a unique, 16-digit hex string.
 5.  Use the QuietCool app to put the controller in pairing mode.
