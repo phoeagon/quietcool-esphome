@@ -17,6 +17,7 @@ This configuration file provides smart control for QuietCool attic fans. Feature
 - Manual speed control (Low/High)
 - Integration with Home Assistant
 - Real-time temperature and humidity monitoring
+- Enable mode switch (temperature-humidity driven, timer, idle)
 - Automatic shutdown when attic temperature reaches desired level
 - Web-based control interface
 
@@ -29,6 +30,7 @@ This configuration file provides smart control for QuietCool attic fans. Feature
 ``` yaml
 substitutions:
     mac_address: "00:00:00:00:00:00" # Replace with your Smart Attic Fan Control's MAC address
+    # This is the bluetooth MAC, not the WIFI Mac!
 
 packages:
   remote_package_shorthand: github://phoeagon/quietcool-esphome/quietcool-smart-attic-fan-control.yaml@main
@@ -62,3 +64,26 @@ This project builds upon the research and development done by [@emerose](https:/
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Customization
+
+You can customize the yaml on its behavior
+
+```
+
+# WiFi configuration with fallback access point
+wifi:
+  ssid: "wifi_ssid"
+  password: "wifi_password"
+  ap:
+    ssid: "quietcool-fan-recovery"
+  
+  # Change this to 15s.
+  reboot_timeout: 15s
+
+# This ensures the Home Assistant interface stays in sync with the actual fan state
+interval:
+  # I changed this to 60s instead of 15s to avoid constant bluetooth traffic.
+  # You can make this longer or shorter
+  - interval: 60s
+```
