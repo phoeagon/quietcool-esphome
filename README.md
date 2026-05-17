@@ -87,3 +87,32 @@ interval:
   # You can make this longer or shorter
   - interval: 60s
 ```
+
+## Updated firmware
+
+If this works for you, consider NOT updating the firmware.
+
+[kentonr](https://github.com/kentonr) has an 
+[updated version](https://github.com/kentonr/quietcool-esphome/tree/main)
+that may work for the updated firmware.
+
+## Hardware tips
+
+If you flashed this, and the ESP32 kit runs fine connected to a computer, but not when
+connected on an external power source, try soldering a small (ceramic) capacitor between
+the 3.3V and GROUND.
+
+![Capacitor between 3.3V and Ground](static/esp32.jpg)
+
+This helps remove the noise that interfere with the Wifi signal.
+
+*A quick test*:
+1. Check if the phone app can still connect to the fan.
+If not, your ESP32 is likely connecting to it.
+2. Check if it connects to your Wifi.
+If not, you are likely encountering this.
+3. Grab the metal case of the USB Type C connector, which
+connects your body to the GROUND of the circuit.
+
+
+Alternatively, grounding the GROUND pin or the metal case of the USB Type C female port.
